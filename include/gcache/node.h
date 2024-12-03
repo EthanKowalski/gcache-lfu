@@ -33,6 +33,9 @@ class NodeTable;
 template <typename Key_t, typename Value_t, typename Hash>
 class LRUCache;
 
+template <typename Key_t, typename Value_t, typename Hash>
+class LFUCache;
+
 template <typename Hash, typename Meta>
 class GhostCache;
 
@@ -49,6 +52,9 @@ class LRUNode {
 
   template <typename K, typename V, typename H>
   friend class LRUCache;
+
+  template <typename K, typename V, typename H>
+  friend class LFUCache;
 
   template <typename H, typename M>
   friend class GhostCache;
@@ -139,6 +145,9 @@ class LRUHandle : public BaseHandle<LRUNode<Key_t, Value_t>> {
 
   template <typename K, typename V, typename H>
   friend class LRUCache;
+
+  template <typename K, typename V, typename H>
+  friend class LFUCache;
 
   template <typename H, typename M>
   friend class GhostCache;
