@@ -63,11 +63,13 @@ class LRUNode {
   uint32_t hash;  // Hash of key; used for fast sharding and comparisons
   Key_t key;
   Value_t value;
+  uint32_t freq; // Frequency (count) of access used in LFU
 
   void init(Key_t k, uint32_t h) {
     this->refs = 1;
     this->hash = h;
     this->key = k;
+    this->freq = 0;
   }
 
   // print for debugging

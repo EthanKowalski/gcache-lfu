@@ -154,6 +154,7 @@ class LFUCache {
   void free_node(Node_t* e);
   void list_remove(Node_t* e);
   void list_append(Node_t* list, Node_t* e);
+  void list_move_up(Node_t* e);
   void ref(Node_t* e);
   void unref(Node_t* e);
   // Perform LFU operation and return the handle with the same order in the list
@@ -216,6 +217,7 @@ template <typename Key_t, typename Value_t, typename Hash>
 inline LFUCache<Key_t, Value_t, Hash>::LFUCache()
     : size_(0), capacity_(0), pool_(nullptr), table_(nullptr) {
   // Make empty circular linked lists.
+  lfu_.freq = UINT32_MAX;
   lfu_.next = &lfu_;
   lfu_.prev = &lfu_;
   in_use_.next = &in_use_;
@@ -558,14 +560,31 @@ inline void LFUCache<Key_t, Value_t, Hash>::list_append(Node_t* list,
 }
 
 template <typename Key_t, typename Value_t, typename Hash>
+inline void LFUCache<Key_t, Value_t, Hash>::list_move_up(Node_t* e) {
+  e->prev->prev->next = e;
+  e->prev->next = e->next;
+  e->next = e->prev;
+  e->next->next->prev = e->next;
+  e->prev = e->prev->prev;
+  e->next->prev = e;
+}
+
+template <typename Key_t, typename Value_t, typename Hash>
 inline typename LFUCache<Key_t, Value_t, Hash>::Node_t*
 LFUCache<Key_t, Value_t, Hash>::lfu_refresh(Node_t* e) {
   assert(e != &lfu_);
   assert(e->refs == 1);
   auto successor = e->next;
-  if (successor == &lfu_) return e;  // no need to move
-  list_remove(e);
-  list_append(&lfu_, e);
+
+  // Increment freq (freq = UINT32_MAX is reserved for head node
+  // so we don't pass it if e is highest freq)
+  if (e.freq < UINT32_MAX - 1)
+    ++e.freq;
+  
+  // Put e in highest position of nodes with same freq
+  while (e.freq > e->prev.freq)
+    list_move_up(e);
+  
   return successor;
 }
 
