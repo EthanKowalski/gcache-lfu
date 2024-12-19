@@ -53,7 +53,7 @@ void test() {
     throw std::runtime_error("Overflow insertion is not denied!");
   assert(cache.size() == 4);
 
-  cache.release(h3);
+  cache.release(h3); // f3 = 2
   h5 = cache.insert(5, true); // f5 = 1
   assert(h5);
   assert(cache.size() == 4);
@@ -61,9 +61,9 @@ void test() {
   std::cout << "\n=== Expect: in_use: [1, 2, 4, 5] ===\n";
   std::cout << cache;
 
-  cache.release(h5);
-  cache.release(h2);
-  cache.release(h4);
+  cache.release(h5); // f5 = 2
+  cache.release(h2); // f2 = 2
+  cache.release(h4); // f4 = 3
   assert(cache.size() == 4);
   std::cout << "\n=== Expect: lfu: [5, 2, 4], in_use: [1] ===\n";
   std::cout << cache;
@@ -104,35 +104,35 @@ void test() {
   std::cout << cache;
   if (h7) throw std::runtime_error("Overflow handle is not denied!");
 
-  cache.release(h1);
-  cache.release(h3);
-  cache.release(h5); // handle h5_ is still pinned
-  cache.release(h6);
+  cache.release(h1); // f1 = 2
+  cache.release(h3); // f3 = 2
+  cache.release(h5); // f5 = 3, handle h5_ is still pinned
+  cache.release(h6); // f6 = 2
   assert(cache.size() == 4);
   std::cout << "\n=== Expect: lfu: [1, 3, 6], in_use: [5] ===\n";
   std::cout << cache;
 
-  h3 = cache.lookup(3); // f3 = 2
+  h3 = cache.lookup(3); // f3 = 3
   assert(cache.size() == 4);
   std::cout << "\n=== Expect: lfu: [1, 6, 3], in_use: [5] ===\n";
   std::cout << cache;
 
-  cache.release(h5_);
+  cache.release(h5_); // f5 = 4
   assert(cache.size() == 4);
   std::cout << "\n=== Expect: lfu: [1, 6, 3, 5], in_use: [] ===\n";
   std::cout << cache;
 
-  h5 = cache.lookup(5); // f5 = 3
+  h5 = cache.lookup(5); // f5 = 5
   assert(cache.size() == 4);
   std::cout << "\n=== Expect: lfu: [1, 6, 3, 5], in_use: [] ===\n";
   std::cout << cache;
 
-  h6 = cache.lookup(6, true); // f6 = 2
+  h6 = cache.lookup(6, true); // f6 = 3
   assert(cache.size() == 4);
   std::cout << "\n=== Expect: lfu: [1, 3, 5], in_use: [6] ===\n";
   std::cout << cache;
 
-  cache.release(h6);
+  cache.release(h6); // f6 = 4
   assert(cache.size() == 4);
   std::cout << "\n=== Expect: lfu: [1, 3, 6, 5], in_use: [] ===\n";
   std::cout << cache;
@@ -144,7 +144,7 @@ void test() {
   assert(h7);
   assert(cache.size() == 4);
   *h7 = 777;
-  std::cout << "\n=== Expect: lfu: [3, 6, 5, 7], in_use: [] ===\n";
+  std::cout << "\n=== Expect: lfu: [7, 3, 6, 5], in_use: [] ===\n";
   std::cout << cache;
 
   // test erase/install
@@ -155,7 +155,7 @@ void test() {
   std::cout << "\n=== Expect: lfu: [3, 6, 5], in_use: [] ===\n";
   std::cout << cache;
 
-  h6 = cache.lookup(6, true); // f6 = 3
+  h6 = cache.lookup(6, true); // f6 = 5
   assert(h6);
   assert(cache.size() == 3);
   std::cout << "\n=== Expect: lfu: [3, 5], in_use: [6] ===\n";
@@ -166,7 +166,7 @@ void test() {
   auto h8 = cache.insert(8); // f8 = 1
   *h8 = 888;
   assert(cache.size() == 3);
-  std::cout << "\n=== Expect: lfu: [5, 8], in_use: [6] ===\n";
+  std::cout << "\n=== Expect: lfu: [8, 5], in_use: [6] ===\n";
   std::cout << cache;
 
   auto h9 = cache.install(9); // f9 = 1
@@ -174,7 +174,7 @@ void test() {
   assert(cache.size() == 4);
   assert(cache.capacity() == 4);
   *h9 = 999;
-  std::cout << "\n=== Expect: lfu: [5, 8, 9], in_use: [6] ===\n";
+  std::cout << "\n=== Expect: lfu: [8, 9, 5], in_use: [6] ===\n";
   std::cout << cache;
 
   // test for_each
@@ -185,8 +185,8 @@ void test() {
   });
   std::cout << "}" << std::endl;
 
-  cache.release(h6);
-  std::cout << "\n=== Expect: lfu: [5, 6, 8, 9], in_use: [] ===\n";
+  cache.release(h6); // f6 = 6
+  std::cout << "\n=== Expect: lfu: [8, 9, 5, 6], in_use: [] ===\n";
   std::cout << cache;
 
   // test for checkpoint and recover (would keep order, but lose frequency?)
@@ -210,25 +210,28 @@ void test() {
 }
 
 void bench() {
+
+  int numElements = 16 * 1024;
+
   LFUCache<uint32_t, uint32_t, hash2> cache;
-  cache.init(256 * 1024);  // #blocks for 1GB working set
+  cache.init(numElements);  // #blocks for 1GB working set
 
   // filling the cache
   auto ts0 = rdtsc();
-  for (int i = 0; i < 256 * 1024; ++i) cache.insert(i);
+  for (int i = 0; i < numElements; ++i) cache.insert(i);
   auto ts1 = rdtsc();
 
   // cache hit
-  for (int i = 0; i < 256 * 1024; ++i) cache.insert(i);
+  for (int i = 0; i < numElements; ++i) cache.insert(i);
   auto ts2 = rdtsc();
 
   // cache miss
-  for (int i = 0; i < 256 * 1024; ++i) cache.insert(i + 256 * 1024);
+  for (int i = 0; i < numElements; ++i) cache.insert(i + numElements);
   auto ts3 = rdtsc();
 
-  std::cout << "Fill: " << (ts1 - ts0) / (256 * 1024) << " cycles/op\n";
-  std::cout << "Hit:  " << (ts2 - ts1) / (256 * 1024) << " cycles/op\n";
-  std::cout << "Miss: " << (ts3 - ts2) / (256 * 1024) << " cycles/op\n";
+  std::cout << "Fill: " << (ts1 - ts0) / (numElements) << " cycles/op\n";
+  std::cout << "Hit:  " << (ts2 - ts1) / (numElements) << " cycles/op\n";
+  std::cout << "Miss: " << (ts3 - ts2) / (numElements) << " cycles/op\n";
   std::cout << std::flush;
 }
 

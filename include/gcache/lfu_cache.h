@@ -154,7 +154,8 @@ class LFUCache {
   void free_node(Node_t* e);
   void list_remove(Node_t* e);
   void list_append(Node_t* list, Node_t* e);
-  void list_move_up(Node_t* e);
+  void list_move_next(Node_t* e);
+  void list_move_prev(Node_t* e);
   void ref(Node_t* e);
   void unref(Node_t* e);
   // Perform LFU operation and return the handle with the same order in the list
@@ -365,6 +366,8 @@ LFUCache<Key_t, Value_t, Hash>::insert_impl(Key_t key, uint32_t hash, bool pin,
     list_append(&in_use_, e);
   } else {
     list_append(&lfu_, e);
+    e->freq++;
+    lfu_refresh(e);
   }
   ++size_;
   return e;
@@ -423,8 +426,10 @@ inline void LFUCache<Key_t, Value_t, Hash>::lookup_refresh(Node_t* node,
                                                            bool pin) {
   if (pin)
     ref(node);
-  else if (node->refs == 1)
+  else if (node->refs == 1) {
+    node->freq++;
     lfu_refresh(node);
+  }
 }
 
 template <typename Key_t, typename Value_t, typename Hash>
@@ -448,6 +453,7 @@ LFUCache<Key_t, Value_t, Hash>::refresh(Key_t key, uint32_t hash,
   table_->insert(e);
   assert(e->refs == 1);
   list_append(&lfu_, e);
+  lfu_refresh(e);
   ++size_;
   return e;
 }
@@ -459,6 +465,7 @@ inline bool LFUCache<Key_t, Value_t, Hash>::erase(Handle_t handle) {
   if (e->refs != 1) return false;
   list_remove(e);
   list_append(&erased_, e);
+  e->freq = 0;
   // it's actually fine to not decrement refs because later `Node_t::init` will
   // reset it. however, decrement it can help to detect "double-erase" issue.
   --e->refs;
@@ -490,6 +497,8 @@ LFUCache<Key_t, Value_t, Hash>::install_impl(Key_t key) {
   e->init(key, Hash{}(key));
   table_->insert(e);
   list_append(&lfu_, e);
+  e->freq++;
+  lfu_refresh(e);
   ++size_;
   ++capacity_;
   return e;
@@ -527,12 +536,14 @@ inline void LFUCache<Key_t, Value_t, Hash>::ref(Node_t* e) {
     list_remove(e);
     list_append(&in_use_, e);
   }
+  e->freq++;
   e->refs++;
 }
 
 template <typename Key_t, typename Value_t, typename Hash>
 inline void LFUCache<Key_t, Value_t, Hash>::unref(Node_t* e) {
   assert(e->refs > 0);
+  e->freq++;
   e->refs--;
   if (e->refs == 0) {  // Deallocate.
     free_node(e);
@@ -540,6 +551,7 @@ inline void LFUCache<Key_t, Value_t, Hash>::unref(Node_t* e) {
     // No longer in use; move to lfu_ list.
     list_remove(e);
     list_append(&lfu_, e);
+    lfu_refresh(e);
   }
 }
 
@@ -560,7 +572,17 @@ inline void LFUCache<Key_t, Value_t, Hash>::list_append(Node_t* list,
 }
 
 template <typename Key_t, typename Value_t, typename Hash>
-inline void LFUCache<Key_t, Value_t, Hash>::list_move_up(Node_t* e) {
+inline void LFUCache<Key_t, Value_t, Hash>::list_move_next(Node_t* e) {
+  e->next->next->prev = e;
+  e->next->prev = e->prev;
+  e->prev = e->next;
+  e->prev->prev->next = e->next;
+  e->next = e->next->next;
+  e->prev->next = e;
+}
+
+template <typename Key_t, typename Value_t, typename Hash>
+inline void LFUCache<Key_t, Value_t, Hash>::list_move_prev(Node_t* e) {
   e->prev->prev->next = e;
   e->prev->next = e->next;
   e->next = e->prev;
@@ -575,15 +597,13 @@ LFUCache<Key_t, Value_t, Hash>::lfu_refresh(Node_t* e) {
   assert(e != &lfu_);
   assert(e->refs == 1);
   auto successor = e->next;
-
-  // Increment freq (freq = UINT32_MAX is reserved for head node
-  // so we don't pass it if e is highest freq)
-  if (e.freq < UINT32_MAX - 1)
-    ++e.freq;
   
   // Put e in highest position of nodes with same freq
-  while (e.freq > e->prev.freq)
-    list_move_up(e);
+  while (e->freq >= e->next->freq && e->next != &lfu_)
+    list_move_next(e);
+  
+  while (e->freq < e->prev->freq && e->prev != &lfu_)
+    list_move_prev(e);
   
   return successor;
 }
